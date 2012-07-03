@@ -1,0 +1,17 @@
+pid nginx.pid;
+
+events {}
+
+http {
+    upstream gunicorn {
+        server 127.0.0.1:{gunicorn};
+    }
+     
+    server {
+        listen *:8080;
+        location / {
+            proxy_pass  http://gunicorn;
+        }
+    }
+
+}
