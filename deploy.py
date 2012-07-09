@@ -178,8 +178,6 @@ def deploy(config_file):
     with file(conf_path, 'w') as nginx_conf:
         nginx_conf.write(nginx_conf_content)
 
-    t = Tail(nginx.log_file)
-
     # SIGHUP or spawn nginx
     nginx_pid = nginx.read_pid()
     if nginx_pid:
@@ -191,15 +189,16 @@ def deploy(config_file):
 
 
     # wait for nginx to reconfig
-    time.sleep(1)
-
-    # Could tail the error log set to info, but even then we'd need to know the # of worker processes
+    # We could tail the error log set to info, but even then we'd need to know the # of worker processes
     # both before and after the sighup (could change if the conf.template changes)
+    # The best option would be to either patch nginx, or write a plugin to get an authoritive answer.
+    time.sleep(1)
 
     # stop old processes
     for service, old_pid in old_pids:
         print "Stopping previous instance of %s, process %s." % (service.name, old_pid)
         service.stop(old_pid)
+
 
 def main():
     if len(sys.argv) != 2:
