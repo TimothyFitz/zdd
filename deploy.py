@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import sys
 import subprocess
+import signal
 import os
 import time
 from ConfigParser import SafeConfigParser
@@ -25,19 +26,14 @@ def read_int_file(filename):
         print "Unable to read", filename
         return None
 
-def get_pid(filename):
+def read_pid(filename):
     pid = read_int_file(filename)
     if pid and check_pid(pid):
         return pid
 
-def get_port(directory, pid):
+def read_port(directory, pid):
     portfile = os.path.join(directory, "%s.port" % pid)
     return read_int_file(portfile)
-
-def get_port_from_pidfile(filename):
-    pid = get_pid(filename)
-    if pid:
-        return get_port(os.path.dirname(filename), pid)
 
 def wait_for(fun, timeout=30.0):
     start = time.time()
@@ -60,21 +56,62 @@ class Service(object):
         self.options = dict([(option, config.get(section, option)) for option in config.options(section)])
         print self.name, self.options
 
+    @property
+    def pid_file(self):
+        return self.options['pid_file']
+
     def start(self):
         run_cmd(self.options['start_script'])
 
     def stop(self, pid):
-        run_cmd(self.options['stop_script'], pid)
+        run_cmd(self.options['stop_script'], str(pid))
 
-    def get_pid(self):
-        return get_pid(self.options['pid_file'])
+    def read_pid(self):
+        return read_pid(self.pid_file)
 
     def read_port(self):
-        return get_port_from_pidfile(self.options['pid_file'])
+        pid = self.read_pid()
+        if not pid:
+            return
+
+        port = read_port(os.path.dirname(self.pid_file), pid)
+        if not port:
+            return
+
+        return RunningService(self, pid, port)
+
+class RunningService(object):
+    def __init__(self, service, pid, port):
+        self.service = service
+        self.pid = pid
+        self.port = port
+
+class Nginx(object):
+    def __init__(self, config):
+        self.template = config.get("nginx", "template")
+        self.pid_file = config.get("nginx", "pid_file")
+        self.log_file = config.get("nginx", "log_file")
+
+        assert self.template.endswith(NGINX_TEMPLATE_SUFFIX), "nginx template name must end with " + NGINX_TEMPLATE_SUFFIX
+
+    def read_pid(self):
+        return read_pid(self.pid_file)
+
+class Tail(object):
+    def __init__(self, filename):
+        self.fp = file(filename, 'r')
+        self.fp.seek(0, os.SEEK_END)
+        self.tail = self.fp.tell()
+
+    def read_tail(self):
+        self.fp.seek(self.tail, os.SEEK_SET)
+        return self.fp.read()
 
 def template_replace(template, replacements):
+    # Feel free to swap in your own real templating engine
+    # str.replace used only to remove a dependency
     for key, value in sorted(replacements.items()):
-        template = template.replace(key, value)
+        template = template.replace("{%s}" % key, value)
     return template
 
 def deploy(config_file):
@@ -85,37 +122,84 @@ def deploy(config_file):
 
     old_pids = []
 
+    # Save old pid files and then delete them
     for service in services:
-        pid = service.get_pid()
-        old_pids.append((service, pid))
+        pid = service.read_pid()
+        if not pid:
+            continue
 
+        old_pids.append((service, pid))
+        with file(service.name + ".previous.pid", 'w') as prev_pid_file: 
+            prev_pid_file.write(str(pid))
+
+        try:
+            os.unlink(service.pid_file)
+        except OSError:
+            pass
+
+    # Spawn new services
     for service in services:
         print "Starting new", service.name
         service.start()
 
-    nginx_template = config.get('global', 'nginx_template')
-    assert nginx_template.endswith(NGINX_TEMPLATE_SUFFIX), "nginx template name must end with " + NGINX_TEMPLATE_SUFFIX
+    # Deal with templating
+    nginx = Nginx(config)
 
-    with file(nginx_template, 'r') as template_file:
+    with file(nginx.template, 'r') as template_file:
         template_content = template_file.read()
 
+    # Wait for new services to spin up, and save their pids
     replacements = {}
     for service in services:
-        port = wait_for(service.read_port)
-        if not port:
+        rs = wait_for(service.read_port)
+        if not rs:
             print >>sys.stderr, "Unable to start %s, timeout while waiting for port file." % service.name
             sys.exit(1)
-        replacements["{%s}" % service.name] = str(port)
+
+        print "%s succesfully started, process %s listening on port %s." % (service.name, rs.pid, rs.port)
+
+        replacements[service.name] = str(rs.port)
+
+        with file(service.name + ".current.pid", 'w') as current_pid_file:
+            current_pid_file.write(str(rs.pid))
+
+    # Write out nginx template
+
+    conf_dir = os.path.abspath(os.path.dirname(nginx.template))
+    conf_filename = os.path.basename(nginx.template)[:-len(NGINX_TEMPLATE_SUFFIX)]
+    conf_path = os.path.abspath(os.path.join(conf_dir, conf_filename))
+
+    replacements['conf_dir'] = conf_dir
 
     nginx_conf_content = template_replace(template_content, replacements)
 
-    conf_dir = os.path.dirname(nginx_template)
-    conf_filename = os.path.basename(nginx_template)[:-len(NGINX_TEMPLATE_SUFFIX)]
-    conf_path = os.path.join(conf_dir, conf_filename)
+
 
     with file(conf_path, 'w') as nginx_conf:
         nginx_conf.write(nginx_conf_content)
 
+    t = Tail(nginx.log_file)
+
+    # SIGHUP or spawn nginx
+    nginx_pid = nginx.read_pid()
+    if nginx_pid:
+        print "Sending SIGHUP to existing nginx process %s." % nginx_pid
+        os.kill(nginx_pid, signal.SIGHUP)
+    else:
+        print "Spawning new nginx."
+        run_cmd("nginx", "-c", conf_path)
+
+
+    # wait for nginx to reconfig
+    time.sleep(1)
+
+    # Could tail the error log set to info, but even then we'd need to know the # of worker processes
+    # both before and after the sighup (could change if the conf.template changes)
+
+    # stop old processes
+    for service, old_pid in old_pids:
+        print "Stopping previous instance of %s, process %s." % (service.name, old_pid)
+        service.stop(old_pid)
 
 def main():
     if len(sys.argv) != 2:

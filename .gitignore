@@ -1,3 +1,4 @@
 *.port
 *.pid
 *.pyc
+*.log

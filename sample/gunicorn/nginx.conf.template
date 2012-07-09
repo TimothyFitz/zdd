@@ -1,4 +1,6 @@
-pid nginx.pid;
+pid {conf_dir}/nginx.pid;
+
+worker_processes 4;
 
 events {}
 
