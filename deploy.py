@@ -90,7 +90,6 @@ class Nginx(object):
     def __init__(self, config):
         self.template = config.get("nginx", "template")
         self.pid_file = config.get("nginx", "pid_file")
-        self.log_file = config.get("nginx", "log_file")
 
         assert self.template.endswith(NGINX_TEMPLATE_SUFFIX), "nginx template name must end with " + NGINX_TEMPLATE_SUFFIX
 

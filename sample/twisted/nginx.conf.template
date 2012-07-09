@@ -3,14 +3,14 @@ pid {conf_dir}/nginx.pid;
 events {}
 
 http {
-    upstream gunicorn {
-        server 127.0.0.1:{gunicorn};
+    upstream twisted {
+        server 127.0.0.1:{twisted};
     }
      
     server {
         listen *:8080;
         location / {
-            proxy_pass  http://gunicorn;
+            proxy_pass  http://twisted;
         }
     }
 

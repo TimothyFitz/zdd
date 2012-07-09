@@ -14,9 +14,6 @@ def when_ready(server):
     with file(port_filename, 'w') as portfile:
         print >>portfile, port
 
+    @atexit.register
     def remove_portfile():
         os.unlink(port_filename)
-
-    atexit.register(remove_portfile)
-
-
