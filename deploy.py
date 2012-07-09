@@ -4,7 +4,7 @@ import subprocess
 import signal
 import os
 import time
-from ConfigParser import SafeConfigParser
+from ConfigParser import SafeConfigParser, Error as ConfigParserError
 
 SERVICE_PREFIX = "service:"
 NGINX_TEMPLATE_SUFFIX = ".template"
@@ -41,30 +41,32 @@ def wait_for(fun, timeout=30.0):
         result = fun()
         if result is not None:
             return result
-        else:
-            print "polling", fun
         time.sleep(0.1)
 
-def run_cmd(command, *args):
-    print "Running",command.split(' ') + list(args)
-    return subprocess.Popen(command.split(' ') + list(args))
+    raise Exception("Timed out waiting %ss for %r" % (timeout, fun))
 
 class Service(object):
     def __init__(self, config, section):
         assert section.startswith(SERVICE_PREFIX)
         self.name = section[len(SERVICE_PREFIX):]
-        self.options = dict([(option, config.get(section, option)) for option in config.options(section)])
-        print self.name, self.options
+        self.pid_file = config.get_path(section, "pid_file")
+        self.start_script = config.get_path(section, "start_script")
+        self.stop_script = config.get_path(section, "stop_script")
+        try:
+            self.cwd = config.get_path(section, "cwd")
+        except ConfigParserError:
+            self.cwd = config.config_dir
 
-    @property
-    def pid_file(self):
-        return self.options['pid_file']
+    def run_cmd(self, *args, **kwargs):
+        kwargs['cwd'] = self.cwd
+        print "run_cmd", args, kwargs
+        return subprocess.Popen(*args, **kwargs)
 
     def start(self):
-        run_cmd(self.options['start_script'])
+        self.run_cmd(self.start_script.split(' '))
 
     def stop(self, pid):
-        run_cmd(self.options['stop_script'], str(pid))
+        self.run_cmd(self.stop_script.split(' ') + [str(pid)])
 
     def read_pid(self):
         return read_pid(self.pid_file)
@@ -88,8 +90,8 @@ class RunningService(object):
 
 class Nginx(object):
     def __init__(self, config):
-        self.template = config.get("nginx", "template")
-        self.pid_file = config.get("nginx", "pid_file")
+        self.template = config.get_path("nginx", "template")
+        self.pid_file = config.get_path("nginx", "pid_file")
 
         assert self.template.endswith(NGINX_TEMPLATE_SUFFIX), "nginx template name must end with " + NGINX_TEMPLATE_SUFFIX
 
@@ -113,8 +115,18 @@ def template_replace(template, replacements):
         template = template.replace("{%s}" % key, value)
     return template
 
+class DeployConfigParser(SafeConfigParser):
+    def read(self, filename):
+        self.config_dir = os.path.dirname(os.path.abspath(filename))
+        return SafeConfigParser.read(self, filename)
+
+    def get_path(self, *args, **kwargs):
+        relpath = self.get(*args, **kwargs)
+        return os.path.join(self.config_dir, relpath)
+
 def deploy(config_file):
-    config = SafeConfigParser()
+
+    config = DeployConfigParser()
     config.read(config_file)
 
     services = [Service(config, section) for section in config.sections() if section.startswith(SERVICE_PREFIX)]
@@ -172,8 +184,6 @@ def deploy(config_file):
 
     nginx_conf_content = template_replace(template_content, replacements)
 
-
-
     with file(conf_path, 'w') as nginx_conf:
         nginx_conf.write(nginx_conf_content)
 
@@ -184,7 +194,7 @@ def deploy(config_file):
         os.kill(nginx_pid, signal.SIGHUP)
     else:
         print "Spawning new nginx."
-        run_cmd("nginx", "-c", conf_path)
+        subprocess.Popen("nginx", "-c", conf_path)
 
 
     # wait for nginx to reconfig
