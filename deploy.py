@@ -98,16 +98,6 @@ class Nginx(object):
     def read_pid(self):
         return read_pid(self.pid_file)
 
-class Tail(object):
-    def __init__(self, filename):
-        self.fp = file(filename, 'r')
-        self.fp.seek(0, os.SEEK_END)
-        self.tail = self.fp.tell()
-
-    def read_tail(self):
-        self.fp.seek(self.tail, os.SEEK_SET)
-        return self.fp.read()
-
 def template_replace(template, replacements):
     # Feel free to swap in your own real templating engine
     # str.replace used only to remove a dependency
