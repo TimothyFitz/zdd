@@ -13,7 +13,6 @@ def check_pid(pid):
     try:
         os.kill(pid, 0)
     except OSError:
-        print pid, "not running"
         return False
     else:
         return True
@@ -23,7 +22,6 @@ def read_int_file(filename):
         with file(filename, 'r') as pidfile:
             return int(pidfile.read())
     except (IOError, OSError, ValueError):
-        print "Unable to read", filename
         return None
 
 def read_pid(filename):
@@ -59,7 +57,6 @@ class Service(object):
 
     def run_cmd(self, *args, **kwargs):
         kwargs['cwd'] = self.cwd
-        print "run_cmd", args, kwargs
         return subprocess.Popen(*args, **kwargs)
 
     def start(self):

@@ -1,0 +1,17 @@
+pid {conf_dir}/nginx.pid;
+
+events {}
+
+http {
+    upstream node {
+        server 127.0.0.1:{node};
+    }
+     
+    server {
+        listen *:8080;
+        location / {
+            proxy_pass  http://node;
+        }
+    }
+
+}
