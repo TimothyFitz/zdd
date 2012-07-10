@@ -184,7 +184,7 @@ def deploy(config_file):
         os.kill(nginx_pid, signal.SIGHUP)
     else:
         print "Spawning new nginx."
-        subprocess.Popen("nginx", "-c", conf_path)
+        subprocess.Popen(["nginx", "-c", conf_path])
 
 
     # wait for nginx to reconfig

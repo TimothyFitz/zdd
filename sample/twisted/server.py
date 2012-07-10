@@ -4,7 +4,11 @@ import signal
 import logging
 
 from twisted.application import internet, service
-from twisted.web import server, resource
+from twisted.internet import defer, reactor
+from twisted.python import log
+from twisted.web import server, resource, http
+
+from deferred_pool import DeferredPool
 
 class HelloWorldResource(resource.Resource):
     isLeaf = True
@@ -12,9 +16,11 @@ class HelloWorldResource(resource.Resource):
     def render_GET(self, request):
         return "<html>Hello, world!</html>"
 
-class GracefulTCPServer(internet.TCPServer):
-    def __init__(self, *args):
-        internet.TCPServer.__init__(self, 0, *args)
+class GracefulHTTPServer(internet.TCPServer):
+    def __init__(self, site, *args, **kwargs):
+        internet.TCPServer.__init__(self, 0, site, *args, **kwargs)
+        self.connections = DeferredPool()
+        self.site = site
 
     def startService(self):
         internet.TCPServer.startService(self)
@@ -27,7 +33,9 @@ class GracefulTCPServer(internet.TCPServer):
         d.addCallback(self.on_stopped_listening)
 
     def on_stopped_listening(self):
-        # TODO: Implement graceful stopping
+        self.site.waitForOutstandingConnections(on_all_connections_finished)
+
+    def on_all_connections_finish(self):
         reactor.stop()
 
     def save_portfile(self):
@@ -40,12 +48,37 @@ class GracefulTCPServer(internet.TCPServer):
         def remove_portfile():
             os.unlink(port_filename)
 
+class GracefulHTTPChannel(http.HTTPChannel):
+    def connectionMade(self):
+        http.HTTPChannel.connectionMade(self)
+        self.connection_tracker = self.factory.trackConnection()
+
+    def connectionLost(self, reason):
+        http.HTTPChannel.connectionLost(self, reason)
+        self.connection_tracker.callback(None)
+
+class GracefulSite(server.Site):
+    protocol = GracefulHTTPChannel
+
+    def __init__(self, *args, **kwargs):
+        server.Site.__init__(self, *args, **kwargs)
+        self.connection_pool = DeferredPool()
+
+    def trackConnection(self):
+        d = Deferred()
+        self.connection_pool.add(d)
+        return d
+
+    def waitForOutstandingConnections(self):
+        return self.connection_pool.notifyWhenEmpty()
+
+
 def HelloWorldApp():
     application = service.Application("HelloWorld")
 
-    site = server.Site(HelloWorldResource())
+    site = GracefulSite(HelloWorldResource())
 
-    web_server = GracefulTCPServer(site)
+    web_server = GracefulHTTPServer(site)
     web_server.setServiceParent(application)
 
     return application
