@@ -2,3 +2,4 @@
 *.pid
 *.pyc
 *.log
+nohup.out

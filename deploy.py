@@ -9,6 +9,11 @@ from ConfigParser import SafeConfigParser, Error as ConfigParserError
 SERVICE_PREFIX = "service:"
 NGINX_TEMPLATE_SUFFIX = ".template"
 
+class _Settings(object):
+    VERBOSE = False
+
+settings = _Settings()
+
 def check_pid(pid):
     try:
         os.kill(pid, 0)
@@ -48,22 +53,24 @@ class Service(object):
         assert section.startswith(SERVICE_PREFIX)
         self.name = section[len(SERVICE_PREFIX):]
         self.pid_file = config.get_path(section, "pid_file")
-        self.start_script = config.get_path(section, "start_script")
-        self.stop_script = config.get_path(section, "stop_script")
+        self.start_cmd = config.get(section, "start")
+        self.stop_cmd = config.get(section, "stop")
         try:
             self.cwd = config.get_path(section, "cwd")
         except ConfigParserError:
             self.cwd = config.config_dir
 
-    def run_cmd(self, *args, **kwargs):
+    def run_cmd(self, command, *args, **kwargs):
         kwargs['cwd'] = self.cwd
-        return subprocess.Popen(*args, **kwargs)
+        if settings.VERBOSE:
+            print "Running:", " ".join(command), "in directory", self.cwd
+        return subprocess.Popen(command, *args, **kwargs)
 
     def start(self):
-        self.run_cmd(self.start_script.split(' '))
+        self.run_cmd(self.start_cmd.split(' '))
 
     def stop(self, pid):
-        self.run_cmd(self.stop_script.split(' ') + [str(pid)])
+        self.run_cmd(self.stop_cmd.split(' ') + [str(pid)])
 
     def read_pid(self):
         return read_pid(self.pid_file)
