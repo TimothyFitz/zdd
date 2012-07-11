@@ -90,6 +90,21 @@ class Service(object):
 
         return RunningService(self, pid, port)
 
+    def _named_pid_file(self, name):
+        """Generates foo.name.pid paths, for example gunicorn.current.pid."""
+        dirname, filename = os.path.split(self.pid_file)
+        root, ext = os.path.splitext(filename)
+        return os.path.join(dirname, root + "." + name + ext)
+
+    @property
+    def current_pid_filename(self):
+        return self._named_pid_file("current")
+
+    @property
+    def previous_pid_filename(self):
+        return self._named_pid_file("previous")
+
+
 class RunningService(object):
     def __init__(self, service, pid, port):
         self.service = service
@@ -125,13 +140,13 @@ class DeployConfigParser(SafeConfigParser):
 def move_old_pidfiles(services):
     """Save old pid files and then delete them"""
     for service in services:
-        pid = service.read_pid()
+        pid = service.read_pid() or read_pid(service.current_pid_filename)
         if not pid:
             continue
 
         service.previous_pid = pid
 
-        with file(service.name + ".previous.pid", 'w') as prev_pid_file: 
+        with file(service.previous_pid_filename, 'w') as prev_pid_file:
             prev_pid_file.write(str(pid))
 
         try:
@@ -170,7 +185,7 @@ def deploy(config_file):
 
         replacements[service.name] = str(rs.port)
 
-        with file(service.name + ".current.pid", 'w') as current_pid_file:
+        with file(service.current_pid_filename, 'w') as current_pid_file:
             current_pid_file.write(str(rs.pid))
 
     # Write out nginx template
