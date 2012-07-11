@@ -29,13 +29,16 @@ class GracefulHTTPServer(internet.TCPServer):
 
     def on_SIGUSR1(self):
         log.msg("SIGUSR1 received, gracefully stopping.", logLevel=logging.CRITICAL)
-        d = self.stopService()
+        d = defer.maybeDeferred(self.stopService())
         d.addCallback(self.on_stopped_listening)
 
-    def on_stopped_listening(self):
-        self.site.waitForOutstandingConnections(on_all_connections_finished)
+    def on_stopped_listening(self, result):
+        log.msg("Waiting for outstanding connections.", logLevel=logging.CRITICAL)
+        d = self.site.waitForOutstandingConnections()
+        d.addCallback(self.on_all_connections_finished)
 
-    def on_all_connections_finish(self):
+    def on_all_connections_finished(self, result):
+        log.msg("All outstanding connections have been closed. Shutting down.", logLevel=logging.CRITICAL)
         reactor.stop()
 
     def save_portfile(self):
@@ -71,6 +74,10 @@ class GracefulSite(server.Site):
 
     def waitForOutstandingConnections(self):
         return self.connection_pool.notifyWhenEmpty()
+
+    def stopFactory(self):
+        server.Site.stopFactory(self)
+        log.msg("stopFactory called", logLevel=logging.CRITICAL)
 
 
 def HelloWorldApp():
