@@ -1,11 +1,56 @@
 var http = require('http');
 var fs = require('fs');
+var util = require('util');
+var EventEmitter = require('events').EventEmitter;
 
 var server = http.createServer(function (req, res) { 
     res.writeHead(200, {'Content-Type': 'text/plain'});
     res.end("Hello World (node.js)\n");
 }); 
 
+
+// Track all open sockets, to be able to gracefully stop.
+var ConnectionTracker = function () {
+    this.connections = 0;
+};
+
+util.inherits(ConnectionTracker, EventEmitter);
+
+ConnectionTracker.prototype.addConnection = function () {
+    this.connections++;
+};
+
+ConnectionTracker.prototype.removeConnection = function () {
+    this.connections--;
+    if (this.connections == 0) {
+        this.emit('empty');
+    }
+};
+
+ConnectionTracker.prototype.addEmptyCallback = function (callback) {
+    if (this.connections == 0) {
+        callback();
+    }
+    this.on('emit', callback);
+};
+
+conn_track = new ConnectionTracker();
+
+server.on('connection', function (socket) {
+    conn_track.addConnection();
+    socket.on('close', function () {
+        conn_track.removeConnection();
+    });
+});
+
+// Gracefully stop on SIGUSR1
+process.on('SIGUSR1', function () {
+    console.log("SIGUSR1 received. Gracefully stopping.");
+    conn_track.addEmptyCallback(function () {
+        console.log("All open connections have been closed. Stopping server.");
+        process.exit();
+    });
+});
 
 var unlinkSync = function (filename) {
     try {
