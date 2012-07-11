@@ -11,6 +11,7 @@ NGINX_TEMPLATE_SUFFIX = ".template"
 
 class _Settings(object):
     VERBOSE = False
+    DEFAULT_CONF_FILE = "./deploy.conf"
 
 settings = _Settings()
 
@@ -203,12 +204,20 @@ def deploy(config_file):
         service.stop(old_pid)
 
 
-def main():
-    if len(sys.argv) != 2:
+def cli_deploy(argv):
+    def usage():
         print >> sys.stderr, "Usage: deploy.py [config file]"
         sys.exit(1)
 
-    deploy(sys.argv[1])
+    if len(argv) == 1:
+        conf_file = settings.DEFAULT_CONF_FILE
+    elif len(argv) == 2:
+        conf_file = argv[1]
+    else:
+        usage()
 
-if __name__ == "__main__":
-    main()
+    if not os.path.exists(conf_file):
+        print >> sys.stderr, "%s not found." % conf_file
+        usage()
+
+    deploy(conf_file)
