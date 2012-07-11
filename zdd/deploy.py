@@ -61,6 +61,9 @@ class Service(object):
         except ConfigParserError:
             self.cwd = config.config_dir
 
+        self.previous_pid = None
+        self.current_pid = None
+
     def run_cmd(self, command, *args, **kwargs):
         kwargs['cwd'] = self.cwd
         if settings.VERBOSE:
@@ -119,22 +122,15 @@ class DeployConfigParser(SafeConfigParser):
         relpath = self.get(*args, **kwargs)
         return os.path.join(self.config_dir, relpath)
 
-def deploy(config_file):
-
-    config = DeployConfigParser()
-    config.read(config_file)
-
-    services = [Service(config, section) for section in config.sections() if section.startswith(SERVICE_PREFIX)]
-
-    old_pids = []
-
-    # Save old pid files and then delete them
+def move_old_pidfiles(services):
+    """Save old pid files and then delete them"""
     for service in services:
         pid = service.read_pid()
         if not pid:
             continue
 
-        old_pids.append((service, pid))
+        service.previous_pid = pid
+
         with file(service.name + ".previous.pid", 'w') as prev_pid_file: 
             prev_pid_file.write(str(pid))
 
@@ -142,6 +138,14 @@ def deploy(config_file):
             os.unlink(service.pid_file)
         except OSError:
             pass
+
+def deploy(config_file):
+    config = DeployConfigParser()
+    config.read(config_file)
+
+    services = [Service(config, section) for section in config.sections() if section.startswith(SERVICE_PREFIX)]
+
+    move_old_pidfiles(services)
 
     # Spawn new services
     for service in services:
@@ -199,9 +203,10 @@ def deploy(config_file):
     time.sleep(1)
 
     # stop old processes
-    for service, old_pid in old_pids:
-        print "Stopping previous instance of %s, process %s." % (service.name, old_pid)
-        service.stop(old_pid)
+    for service in services:
+        if service.previous_pid is not None:
+            print "Stopping previous instance of %s, process %s." % (service.name, service.previous_pid)
+            service.stop(service.previous_pid)
 
 
 def cli_deploy(argv):

@@ -3,3 +3,4 @@
 *.pyc
 *.log
 nohup.out
+*.egg-info
