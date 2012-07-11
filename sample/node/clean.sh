@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-pkill -f node
+pkill -9 -f node
 pkill -f nginx
 rm *.pid
 rm *.port

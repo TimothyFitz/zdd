@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-kill -SIGINT $1
+kill -SIGUSR1 $1
