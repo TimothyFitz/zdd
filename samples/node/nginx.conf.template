@@ -1,4 +1,4 @@
-pid {conf_dir}/nginx.pid;
+pid {nginx_pid_filename};
 
 events {}
 

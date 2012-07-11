@@ -30,6 +30,10 @@ def read_int_file(filename):
     except (IOError, OSError, ValueError):
         return None
 
+def write_int_file(filename, number):
+    with file(filename, 'w') as pidfile:
+        pidfile.write(str(number))
+
 def read_pid(filename):
     pid = read_int_file(filename)
     if pid and check_pid(pid):
@@ -118,8 +122,36 @@ class Nginx(object):
 
         assert self.template.endswith(NGINX_TEMPLATE_SUFFIX), "nginx template name must end with " + NGINX_TEMPLATE_SUFFIX
 
+    @property
+    def rendered_config_filename(self):
+        conf_filename = os.path.basename(self.template)[:-len(NGINX_TEMPLATE_SUFFIX)]
+        return os.path.abspath(os.path.join(os.path.dirname(self.template), conf_filename))
+
     def read_pid(self):
         return read_pid(self.pid_file)
+
+    def render_config(self, replacements):
+        """Render nginx.conf template into nginx.conf"""
+
+        replacements['nginx_pid_filename'] = self.pid_file
+
+        with file(self.template, 'r') as template_file:
+            template_content = template_file.read()
+
+        nginx_conf_content = template_replace(template_content, replacements)
+
+        with file(self.rendered_config_filename, 'w') as nginx_conf:
+            nginx_conf.write(nginx_conf_content)
+
+    def reconfig(self):
+        """SIGHUP or spawn a new nginx."""
+        nginx_pid = self.read_pid()
+        if nginx_pid:
+            print "Sending SIGHUP to existing nginx process %s." % nginx_pid
+            os.kill(nginx_pid, signal.SIGHUP)
+        else:
+            print "Spawning new nginx."
+            subprocess.Popen(["nginx", "-c", self.rendered_config_filename])
 
 def template_replace(template, replacements):
     # Feel free to swap in your own real templating engine
@@ -135,7 +167,7 @@ class DeployConfigParser(SafeConfigParser):
 
     def get_path(self, *args, **kwargs):
         relpath = self.get(*args, **kwargs)
-        return os.path.join(self.config_dir, relpath)
+        return os.path.abspath(os.path.join(self.config_dir, relpath))
 
 def move_old_pidfiles(services):
     """Save old pid files and then delete them"""
@@ -146,8 +178,7 @@ def move_old_pidfiles(services):
 
         service.previous_pid = pid
 
-        with file(service.previous_pid_filename, 'w') as prev_pid_file:
-            prev_pid_file.write(str(pid))
+        write_int_file(service.previous_pid_filename, pid)
 
         try:
             os.unlink(service.pid_file)
@@ -167,11 +198,8 @@ def deploy(config_file):
         print "Starting new", service.name
         service.start()
 
-    # Deal with templating
-    nginx = Nginx(config)
 
-    with file(nginx.template, 'r') as template_file:
-        template_content = template_file.read()
+    nginx = Nginx(config)
 
     # Wait for new services to spin up, and save their pids
     replacements = {}
@@ -185,31 +213,10 @@ def deploy(config_file):
 
         replacements[service.name] = str(rs.port)
 
-        with file(service.current_pid_filename, 'w') as current_pid_file:
-            current_pid_file.write(str(rs.pid))
+        write_int_file(service.current_pid_filename, rs.pid)
 
-    # Write out nginx template
-
-    conf_dir = os.path.abspath(os.path.dirname(nginx.template))
-    conf_filename = os.path.basename(nginx.template)[:-len(NGINX_TEMPLATE_SUFFIX)]
-    conf_path = os.path.abspath(os.path.join(conf_dir, conf_filename))
-
-    replacements['conf_dir'] = conf_dir
-
-    nginx_conf_content = template_replace(template_content, replacements)
-
-    with file(conf_path, 'w') as nginx_conf:
-        nginx_conf.write(nginx_conf_content)
-
-    # SIGHUP or spawn nginx
-    nginx_pid = nginx.read_pid()
-    if nginx_pid:
-        print "Sending SIGHUP to existing nginx process %s." % nginx_pid
-        os.kill(nginx_pid, signal.SIGHUP)
-    else:
-        print "Spawning new nginx."
-        subprocess.Popen(["nginx", "-c", conf_path])
-
+    nginx.render_config(replacements)
+    nginx.reconfig()
 
     # wait for nginx to reconfig
     # We could tail the error log set to info, but even then we'd need to know the # of worker processes
