@@ -32,41 +32,40 @@ that can be used to do zero downtime cutover between versions. Using gunicorn as
 
 This causes zddeploy to read the ``deploy.conf`` in ``./samples/gunicorn``:
 
-    [nginx]
-    template: ./nginx.conf.template
-    pid_file: ./nginx.pid
+  [nginx]
+  template: ./nginx.conf.template
+  pid_file: ./nginx.pid
 
-    [service:gunicorn]
-    pid_file: gunicorn.pid
-    start: gunicorn -D -c settings_gunicorn.py app:app
-    stop: kill -WINCH
+  [service:gunicorn]
+  pid_file: gunicorn.pid
+  start: gunicorn -D -c settings_gunicorn.py app:app
+  stop: kill -WINCH
 
 
 The only requirement beyond this simple configuration file is that the web server must ask the OS to listen on a random port (by binding to port 0 instead of a specific port), and then write a ``portfile`` in addition to the commonly written ``pidfile``. A ``portfile`` is nothing more than a single line containing the OS assigned random port the server is listening to. To avoid race conditions, the ``portfile`` is named by adding ``.port`` to the end of the pid (i.e. ``94383.pid``).
 
 For example, here's the 12 lines of code it takes to add this behavior to gunicorn:
 
-    def get_port_filename():
-        pid = os.getpid()
-        return os.path.join(os.path.dirname(pidfile), "%s.port" % pid)
+  def get_port_filename():
+      pid = os.getpid()
+      return os.path.join(os.path.dirname(pidfile), "%s.port" % pid)
 
-    def when_ready(server):
-        host, port = server.LISTENER.sock.getsockname()
-        port_filename = get_port_filename()
-        with file(port_filename, 'w') as portfile:
-            print >>portfile, port
+  def when_ready(server):
+      host, port = server.LISTENER.sock.getsockname()
+      port_filename = get_port_filename()
+      with file(port_filename, 'w') as portfile:
+          print >>portfile, port
 
-        @atexit.register
-        def remove_portfile():
-            os.unlink(port_filename)
+      @atexit.register
+      def remove_portfile():
+          os.unlink(port_filename)
 
 
 Ideally, your server has a graceful stop option, as gunicorn has by default via the SIGWINCH signal (graceful stop code for node.js and twisted included in the samples directory). If it doesn't, you can get a cheap alternative by simply waiting a long enough time period and then killing the server:
 
-    #!/usr/bin/env bash
-    sleep 600
-    kill $1
-
+  #!/usr/bin/env bash
+  sleep 600
+  kill $1
 
 Configuration File
 ------------------
