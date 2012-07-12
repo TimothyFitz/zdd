@@ -1,0 +1,4 @@
+Detect nginx config errors
+    - nginx -tc foo.conf would find syntax errors
+    - Other errors could only be caught by attempting to launch new nginx
+    - In the event of an error in the config file, right now we end up with no backends :(
