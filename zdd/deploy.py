@@ -4,6 +4,7 @@ import subprocess
 import signal
 import os
 import time
+from optparse import OptionParser
 from ConfigParser import SafeConfigParser, Error as ConfigParserError
 
 SERVICE_PREFIX = "service:"
@@ -198,9 +199,6 @@ def deploy(config_file):
         print "Starting new", service.name
         service.start()
 
-
-    nginx = Nginx(config)
-
     # Wait for new services to spin up, and save their pids
     replacements = {}
     for service in services:
@@ -212,9 +210,9 @@ def deploy(config_file):
         print "%s succesfully started, process %s listening on port %s." % (service.name, rs.pid, rs.port)
 
         replacements[service.name] = str(rs.port)
-
         write_int_file(service.current_pid_filename, rs.pid)
 
+    nginx = Nginx(config)
     nginx.render_config(replacements)
     nginx.reconfig()
 
@@ -230,21 +228,35 @@ def deploy(config_file):
             print "Stopping previous instance of %s, process %s." % (service.name, service.previous_pid)
             service.stop(service.previous_pid)
 
-
 def cli_deploy(argv):
-    def usage():
-        print >> sys.stderr, "Usage: deploy.py [config file]"
-        sys.exit(1)
+    parser = OptionParser()
 
-    if len(argv) == 1:
-        conf_file = settings.DEFAULT_CONF_FILE
-    elif len(argv) == 2:
-        conf_file = argv[1]
-    else:
-        usage()
+    parser.add_option(
+        "-c",
+        "--conf",
+        dest="deploy_conf",
+        help="FILENAME of zdd configuration. [default %default]",
+        default="deploy.conf",
+        metavar="FILENAME",
+    )
 
-    if not os.path.exists(conf_file):
-        print >> sys.stderr, "%s not found." % conf_file
-        usage()
+    parser.add_option(
+        "-v",
+        "--verbose",
+        dest="verbose",
+        action="store_true",
+        default=False,
+        help="Enable verbose logging of the actions zdd takes.",
+    )
 
-    deploy(conf_file)
+    options, args = parser.parse_args(argv)
+
+    settings.VERBOSE = options.verbose
+
+    if not os.path.exists(options.deploy_conf):
+        print "ERROR: Unable to read zdd configuration file: %s" % options.deploy_conf
+        print
+        parser.print_help()
+        parser.exit()
+
+    deploy(options.deploy_conf)
