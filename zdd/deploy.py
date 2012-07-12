@@ -1,11 +1,12 @@
-#!/usr/bin/env python
-import sys
-import subprocess
-import signal
-import os
-import time
-from optparse import OptionParser
+from __future__ import with_statement
+
 from ConfigParser import SafeConfigParser, Error as ConfigParserError
+from optparse import OptionParser
+import os
+import signal
+import subprocess
+import sys
+import time
 
 SERVICE_PREFIX = "service:"
 NGINX_TEMPLATE_SUFFIX = ".template"

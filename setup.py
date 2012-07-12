@@ -6,5 +6,4 @@ setup(
     packages=['zdd',],
     scripts=['bin/zddeploy'],
     license='The MIT License',
-    long_description=open('README').read(),
 )
