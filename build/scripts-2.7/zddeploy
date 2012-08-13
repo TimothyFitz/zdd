@@ -1,4 +1,4 @@
-#!/Users/timothyfitz/.virtualenvs/zdd/bin/python
+#!/usr/bin/env python
 import sys
 from zdd.deploy import cli_deploy
 cli_deploy(sys.argv)
